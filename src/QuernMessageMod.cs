@@ -76,48 +76,44 @@ namespace QuernMessage
 
             try
             {
-                // Try to find a grinding recipe that matches this input
-                // Access the recipe registry through reflection since it's not in the public API
-                var recipeRegistryType = api.World.GetType()
-                    .GetProperty("GrindingRecipes", BindingFlags.Instance | BindingFlags.Public)
-                    ?.PropertyType;
+                // Debug: Check what's available on the item
+                api.Logger.Notification($"[QuernMessage] Checking {stack.GetName()}");
+                api.Logger.Notification($"[QuernMessage]   Has ItemAttributes: {stack.ItemAttributes != null}");
 
-                var grindingRecipes = api.World.GetType()
-                    .GetProperty("GrindingRecipes", BindingFlags.Instance | BindingFlags.Public)
-                    ?.GetValue(api.World);
-
-                if (grindingRecipes == null) return false;
-
-                // Iterate through grinding recipes
-                var recipesEnumerable = grindingRecipes as System.Collections.IEnumerable;
-                if (recipesEnumerable != null)
+                // Check for GrindingProps property on the collectible
+                var collectibleType = stack.Collectible?.GetType();
+                if (collectibleType != null)
                 {
-                    foreach (var recipe in recipesEnumerable)
+                    var grindingProps = collectibleType.GetProperty("GrindingProps", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                    if (grindingProps != null)
                     {
-                        // Get the Ingredient property
-                        var ingredientProp = recipe.GetType()
-                            .GetProperty("Ingredient", BindingFlags.Instance | BindingFlags.Public);
-
-                        if (ingredientProp != null)
+                        var props = grindingProps.GetValue(stack.Collectible);
+                        if (props != null)
                         {
-                            var ingredient = ingredientProp.GetValue(recipe);
+                            api.Logger.Notification($"[QuernMessage] Found GrindingProps object on {stack.GetName()}, type: {props.GetType().Name}");
 
-                            // Check if this ingredient matches the stack
-                            var satisfiesMethod = ingredient?.GetType()
-                                .GetMethod("SatisfiesAsIngredient", new[] { typeof(ItemStack) });
-
-                            if (satisfiesMethod != null)
+                            // Check if it has an actual output defined
+                            var groundStackProp = props.GetType().GetProperty("GroundStack");
+                            if (groundStackProp != null)
                             {
-                                bool satisfies = (bool)satisfiesMethod.Invoke(ingredient, new object[] { stack });
-                                if (satisfies) return true;
+                                var groundStack = groundStackProp.GetValue(props);
+                                if (groundStack != null)
+                                {
+                                    api.Logger.Notification($"[QuernMessage] {stack.GetName()} CAN be ground (has GroundStack)");
+                                    return true;
+                                }
                             }
                         }
                     }
                 }
+
+                api.Logger.Notification($"[QuernMessage] {stack.GetName()} CANNOT be ground (no valid grinding properties found)");
+                return false;
             }
             catch (Exception ex)
             {
-                api?.Logger?.Debug("[QuernMessage] Error checking grinding recipes: {0}", ex.Message);
+                api?.Logger?.Error("[QuernMessage] Error checking if item can be ground: {0}", ex.Message);
+                api?.Logger?.Error("[QuernMessage] Stack trace: {0}", ex.StackTrace);
             }
 
             return false;
@@ -190,13 +186,17 @@ namespace QuernMessage
                 ItemStack inputStack = slot.Itemstack;
                 if (inputStack == null) return;
 
-                // Check if this item can be ground
-                bool canBeGround = QuernValidation.CanBeGround(__instance.Api, inputStack);
-
-                if (!canBeGround)
+                // Use the quern's own CanGrind method to check if this item is valid
+                var canGrindMethod = __instance.GetType().GetMethod("CanGrind", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (canGrindMethod != null)
                 {
-                    // Send message using shared handler with deduplication
-                    QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+                    bool canGrind = (bool)canGrindMethod.Invoke(__instance, null);
+
+                    if (!canGrind)
+                    {
+                        // Send message using shared handler with deduplication
+                        QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+                    }
                 }
             }
             catch (Exception ex)
@@ -232,13 +232,18 @@ namespace QuernMessage
                 ItemStack inputStack = inputSlot.Itemstack;
                 if (inputStack == null) return;
 
-                // Check if this item can be ground
-                bool canBeGround = QuernValidation.CanBeGround(sapi, inputStack);
+                // Use the quern's own CanGrind method to check if this item is valid
+                var canGrindMethod = __instance.GetType().GetMethod("CanGrind", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (canGrindMethod != null)
+                {
+                    bool canGrind = (bool)canGrindMethod.Invoke(__instance, null);
 
-                if (canBeGround) return;
-
-                // Item is invalid, send message using shared handler with deduplication
-                QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+                    if (!canGrind)
+                    {
+                        // Item is invalid, send message using shared handler with deduplication
+                        QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+                    }
+                }
             }
             catch (Exception ex)
             {
