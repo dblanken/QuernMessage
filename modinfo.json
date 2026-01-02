@@ -1,0 +1,12 @@
+{
+  "type": "code",
+  "modid": "quernmessage",
+  "name": "Quern Message",
+  "authors": ["Neimoon"],
+  "description": "Displays a message when invalid items are placed in a quern",
+  "version": "1.0.0",
+  "dependencies": {
+    "game": "1.21.6"
+  },
+  "side": "Universal"
+}
