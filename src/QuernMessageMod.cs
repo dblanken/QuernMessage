@@ -5,6 +5,9 @@ using System.Reflection;
 using Vintagestory.API.Common;
 using Vintagestory.API.Config;
 using Vintagestory.API.Server;
+using Vintagestory.API.Client;
+using Vintagestory.API.Datastructures;
+using Vintagestory.API.MathTools;
 
 namespace QuernMessage
 {
@@ -26,41 +29,30 @@ namespace QuernMessage
 
             if (quernType != null)
             {
-                // Debug: Log all methods on BlockEntityQuern
-                api.Logger.Debug("[QuernMessage] Found BlockEntityQuern type. Available methods:");
-                var allMethods = quernType.GetMethods(BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.DeclaredOnly);
-                foreach (var method in allMethods)
-                {
-                    var parameters = string.Join(", ", method.GetParameters().Select(p => p.ParameterType.Name + " " + p.Name));
-                    api.Logger.Debug($"[QuernMessage]   {method.ReturnType.Name} {method.Name}({parameters})");
-                }
+                // Patch OnSlotModifid (note: typo in game code)
+                var onSlotModifiedMethod = quernType.GetMethod("OnSlotModifid",
+                    BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
-                // Try to find the slot modification callback
-                // Note: The game has a typo - it's "OnSlotModifid" not "OnSlotModified"
-                MethodInfo targetMethod = null;
-                string[] possibleMethodNames = { "OnSlotModifid", "OnSlotModified", "slotModified", "OnInventorySlotModified", "SlotModified" };
-
-                foreach (var methodName in possibleMethodNames)
-                {
-                    targetMethod = quernType.GetMethod(methodName,
-                        BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (targetMethod != null)
-                    {
-                        api.Logger.Notification($"[QuernMessage] Found method: {methodName}");
-                        break;
-                    }
-                }
-
-                if (targetMethod != null)
+                if (onSlotModifiedMethod != null)
                 {
                     var postfixMethod = typeof(QuernSlotPatch).GetMethod("Postfix");
-                    harmony.Patch(targetMethod, postfix: new HarmonyMethod(postfixMethod));
-                    api.Logger.Notification($"[QuernMessage] Successfully patched BlockEntityQuern.{targetMethod.Name}");
+                    harmony.Patch(onSlotModifiedMethod, postfix: new HarmonyMethod(postfixMethod));
+                    api.Logger.Notification("[QuernMessage] Successfully patched BlockEntityQuern.OnSlotModifid");
                 }
                 else
                 {
-                    api.Logger.Warning("[QuernMessage] Could not find slot modified method on BlockEntityQuern");
-                    api.Logger.Warning("[QuernMessage] Will attempt to patch inventory events instead");
+                    api.Logger.Warning("[QuernMessage] Could not find OnSlotModifid method on BlockEntityQuern");
+                }
+
+                // Patch OnPlayerRightClick to show error message when GUI opens
+                var onPlayerRightClickMethod = quernType.GetMethod("OnPlayerRightClick",
+                    BindingFlags.Instance | BindingFlags.Public);
+
+                if (onPlayerRightClickMethod != null)
+                {
+                    var rightClickPostfix = typeof(QuernRightClickPatch).GetMethod("Postfix");
+                    harmony.Patch(onPlayerRightClickMethod, postfix: new HarmonyMethod(rightClickPostfix));
+                    api.Logger.Notification("[QuernMessage] Successfully patched BlockEntityQuern.OnPlayerRightClick");
                 }
             }
             else
@@ -76,42 +68,9 @@ namespace QuernMessage
         }
     }
 
-    public class QuernSlotPatch
+    public static class QuernValidation
     {
-        public static void Postfix(BlockEntity __instance, int slotid)
-        {
-            try
-            {
-                // Only check the input slot (slot 0)
-                if (slotid != 0) return;
-
-                var inventory = __instance.GetType()
-                    .GetProperty("Inventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-                    ?.GetValue(__instance) as InventoryBase;
-
-                if (inventory == null || inventory.Count == 0) return;
-
-                var slot = inventory[0];
-                if (slot == null || slot.Empty) return;
-
-                ItemStack inputStack = slot.Itemstack;
-                if (inputStack == null) return;
-
-                // Check if this item can be ground
-                bool canBeGround = CanBeGround(__instance.Api, inputStack);
-
-                if (!canBeGround)
-                {
-                    SendInvalidItemMessage(__instance, inputStack);
-                }
-            }
-            catch (Exception ex)
-            {
-                __instance.Api?.Logger?.Error("[QuernMessage] Error in QuernSlotPatch: {0}", ex.Message);
-            }
-        }
-
-        private static bool CanBeGround(ICoreAPI api, ItemStack stack)
+        public static bool CanBeGround(ICoreAPI api, ItemStack stack)
         {
             if (api == null || stack == null) return false;
 
@@ -163,27 +122,127 @@ namespace QuernMessage
 
             return false;
         }
+    }
 
-        private static void SendInvalidItemMessage(BlockEntity blockEntity, ItemStack stack)
+    // Shared message handler with deduplication
+    public static class QuernMessageHandler
+    {
+        private static readonly System.Collections.Generic.Dictionary<BlockPos, (string itemName, long timestamp)> lastMessages
+            = new System.Collections.Generic.Dictionary<BlockPos, (string, long)>();
+
+        public static void SendInvalidItemMessage(BlockEntity blockEntity, ItemStack stack)
         {
-            string itemName = stack.GetName();
+            // Only send from server side to prevent duplicates
+            if (!(blockEntity.Api is ICoreServerAPI sapi)) return;
 
-            if (blockEntity.Api is ICoreServerAPI sapi)
+            string itemName = stack.GetName();
+            long currentTime = sapi.World.ElapsedMilliseconds;
+
+            // Deduplication: Don't send the same message for the same position within 500ms
+            if (lastMessages.TryGetValue(blockEntity.Pos, out var lastMsg))
             {
-                // Send message to all nearby players
-                foreach (var player in sapi.World.AllOnlinePlayers)
+                if (lastMsg.itemName == itemName && (currentTime - lastMsg.timestamp) < 500)
                 {
-                    if (player.Entity?.Pos != null &&
-                        player.Entity.Pos.DistanceTo(blockEntity.Pos.ToVec3d()) < 10)
-                    {
-                        var serverPlayer = player as IServerPlayer;
-                        serverPlayer?.SendMessage(
-                            GlobalConstants.GeneralChatGroup,
-                            $"'{itemName}' cannot be ground in a quern. Please place a valid item.",
-                            EnumChatType.Notification
-                        );
-                    }
+                    return; // Skip duplicate message
                 }
+            }
+
+            // Update last message timestamp
+            lastMessages[blockEntity.Pos] = (itemName, currentTime);
+
+            string errorMessage = $"'{itemName}' cannot be ground in a quern.";
+
+            // Send to all nearby players
+            foreach (var player in sapi.World.AllOnlinePlayers)
+            {
+                if (player.Entity?.Pos != null &&
+                    player.Entity.Pos.DistanceTo(blockEntity.Pos.ToVec3d()) < 10)
+                {
+                    var serverPlayer = player as IServerPlayer;
+                    serverPlayer?.SendMessage(
+                        GlobalConstants.GeneralChatGroup,
+                        errorMessage,
+                        EnumChatType.Notification
+                    );
+                }
+            }
+        }
+    }
+
+    public class QuernSlotPatch
+    {
+        public static void Postfix(BlockEntity __instance, int slotid)
+        {
+            try
+            {
+                // Only check the input slot (slot 0)
+                if (slotid != 0) return;
+
+                var inventory = __instance.GetType()
+                    .GetProperty("Inventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
+                    ?.GetValue(__instance) as InventoryBase;
+
+                if (inventory == null || inventory.Count == 0) return;
+
+                var slot = inventory[0];
+                if (slot == null || slot.Empty) return;
+
+                ItemStack inputStack = slot.Itemstack;
+                if (inputStack == null) return;
+
+                // Check if this item can be ground
+                bool canBeGround = QuernValidation.CanBeGround(__instance.Api, inputStack);
+
+                if (!canBeGround)
+                {
+                    // Send message using shared handler with deduplication
+                    QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+                }
+            }
+            catch (Exception ex)
+            {
+                __instance.Api?.Logger?.Error("[QuernMessage] Error in QuernSlotPatch: {0}", ex.Message);
+            }
+        }
+    }
+
+    // Patch for when player right-clicks quern - show error if invalid item
+    public class QuernRightClickPatch
+    {
+        public static void Postfix(BlockEntity __instance, IPlayer byPlayer, BlockSelection blockSel, ref bool __result)
+        {
+            try
+            {
+                // Only run on server side
+                if (!(__instance.Api is ICoreServerAPI sapi)) return;
+
+                // Get the inventory from the quern
+                var inventoryProp = __instance.GetType()
+                    .GetProperty("Inventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+                if (inventoryProp == null) return;
+
+                var inventory = inventoryProp.GetValue(__instance) as InventoryBase;
+                if (inventory == null || inventory.Count == 0) return;
+
+                // Check slot 0 (input slot)
+                var inputSlot = inventory[0];
+                if (inputSlot == null || inputSlot.Empty) return;
+
+                ItemStack inputStack = inputSlot.Itemstack;
+                if (inputStack == null) return;
+
+                // Check if this item can be ground
+                bool canBeGround = QuernValidation.CanBeGround(sapi, inputStack);
+
+                if (canBeGround) return;
+
+                // Item is invalid, send message using shared handler with deduplication
+                QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
+            }
+            catch (Exception ex)
+            {
+                __instance.Api?.Logger?.Error("[QuernMessage] Error in QuernRightClickPatch: {0}", ex.Message);
             }
         }
     }
