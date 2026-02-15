@@ -1,5 +1,6 @@
 using HarmonyLib;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using Vintagestory.API.Common;
@@ -76,11 +77,9 @@ namespace QuernMessage
 
             try
             {
-                // Debug: Check what's available on the item
                 api.Logger.Notification($"[QuernMessage] Checking {stack.GetName()}");
                 api.Logger.Notification($"[QuernMessage]   Has ItemAttributes: {stack.ItemAttributes != null}");
 
-                // Check for GrindingProps property on the collectible
                 var collectibleType = stack.Collectible?.GetType();
                 if (collectibleType != null)
                 {
@@ -92,7 +91,6 @@ namespace QuernMessage
                         {
                             api.Logger.Notification($"[QuernMessage] Found GrindingProps object on {stack.GetName()}, type: {props.GetType().Name}");
 
-                            // Check if it has an actual output defined
                             var groundStackProp = props.GetType().GetProperty("GroundStack");
                             if (groundStackProp != null)
                             {
@@ -120,48 +118,102 @@ namespace QuernMessage
         }
     }
 
-    // Shared message handler with deduplication
+    public class MessageDeduplicator
+    {
+        private readonly Dictionary<BlockPos, (string itemName, long timestamp)> _lastMessages = new();
+        private readonly long _deduplicationWindowMs;
+
+        public MessageDeduplicator(long deduplicationWindowMs = 500)
+        {
+            _deduplicationWindowMs = deduplicationWindowMs;
+        }
+
+        public bool ShouldSend(BlockPos pos, string itemName, long currentTimeMs)
+        {
+            if (_lastMessages.TryGetValue(pos, out var lastMsg))
+            {
+                if (lastMsg.itemName == itemName && (currentTimeMs - lastMsg.timestamp) < _deduplicationWindowMs)
+                {
+                    return false;
+                }
+            }
+
+            _lastMessages[pos] = (itemName, currentTimeMs);
+            return true;
+        }
+
+        public void Clear()
+        {
+            _lastMessages.Clear();
+        }
+    }
+
+    public interface IMessageSender
+    {
+        void SendToNearbyPlayers(BlockPos pos, string message);
+    }
+
+    public class ServerMessageSender : IMessageSender
+    {
+        private readonly ICoreServerAPI _sapi;
+
+        public ServerMessageSender(ICoreServerAPI sapi)
+        {
+            _sapi = sapi;
+        }
+
+        public void SendToNearbyPlayers(BlockPos pos, string message)
+        {
+            foreach (var player in _sapi.World.AllOnlinePlayers)
+            {
+                if (player.Entity?.Pos != null &&
+                    player.Entity.Pos.DistanceTo(pos.ToVec3d()) < 10)
+                {
+                    var serverPlayer = player as IServerPlayer;
+                    serverPlayer?.SendMessage(
+                        GlobalConstants.GeneralChatGroup,
+                        message,
+                        EnumChatType.Notification
+                    );
+                }
+            }
+        }
+    }
+
     public static class QuernMessageHandler
     {
-        private static readonly System.Collections.Generic.Dictionary<BlockPos, (string itemName, long timestamp)> lastMessages
-            = new System.Collections.Generic.Dictionary<BlockPos, (string, long)>();
+        private static MessageDeduplicator _deduplicator = new();
+        private static IMessageSender _messageSender;
+
+        // For testing: allow injecting dependencies
+        public static void Configure(MessageDeduplicator deduplicator, IMessageSender messageSender)
+        {
+            _deduplicator = deduplicator;
+            _messageSender = messageSender;
+        }
+
+        public static void ResetToDefaults()
+        {
+            _deduplicator = new MessageDeduplicator();
+            _messageSender = null;
+        }
 
         public static void SendInvalidItemMessage(BlockEntity blockEntity, ItemStack stack)
         {
-            // Only send from server side to prevent duplicates
             if (!(blockEntity.Api is ICoreServerAPI sapi)) return;
 
             string itemName = stack.GetName();
             long currentTime = sapi.World.ElapsedMilliseconds;
 
-            // Deduplication: Don't send the same message for the same position within 500ms
-            if (lastMessages.TryGetValue(blockEntity.Pos, out var lastMsg))
+            if (!_deduplicator.ShouldSend(blockEntity.Pos, itemName, currentTime))
             {
-                if (lastMsg.itemName == itemName && (currentTime - lastMsg.timestamp) < 500)
-                {
-                    return; // Skip duplicate message
-                }
+                return;
             }
-
-            // Update last message timestamp
-            lastMessages[blockEntity.Pos] = (itemName, currentTime);
 
             string errorMessage = $"'{itemName}' cannot be ground in a quern.";
 
-            // Send to all nearby players
-            foreach (var player in sapi.World.AllOnlinePlayers)
-            {
-                if (player.Entity?.Pos != null &&
-                    player.Entity.Pos.DistanceTo(blockEntity.Pos.ToVec3d()) < 10)
-                {
-                    var serverPlayer = player as IServerPlayer;
-                    serverPlayer?.SendMessage(
-                        GlobalConstants.GeneralChatGroup,
-                        errorMessage,
-                        EnumChatType.Notification
-                    );
-                }
-            }
+            var sender = _messageSender ?? new ServerMessageSender(sapi);
+            sender.SendToNearbyPlayers(blockEntity.Pos, errorMessage);
         }
     }
 
@@ -171,7 +223,6 @@ namespace QuernMessage
         {
             try
             {
-                // Only check the input slot (slot 0)
                 if (slotid != 0) return;
 
                 var inventory = __instance.GetType()
@@ -186,7 +237,6 @@ namespace QuernMessage
                 ItemStack inputStack = slot.Itemstack;
                 if (inputStack == null) return;
 
-                // Use the quern's own CanGrind method to check if this item is valid
                 var canGrindMethod = __instance.GetType().GetMethod("CanGrind", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (canGrindMethod != null)
                 {
@@ -194,7 +244,6 @@ namespace QuernMessage
 
                     if (!canGrind)
                     {
-                        // Send message using shared handler with deduplication
                         QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
                     }
                 }
@@ -206,17 +255,14 @@ namespace QuernMessage
         }
     }
 
-    // Patch for when player right-clicks quern - show error if invalid item
     public class QuernRightClickPatch
     {
         public static void Postfix(BlockEntity __instance, IPlayer byPlayer, BlockSelection blockSel, ref bool __result)
         {
             try
             {
-                // Only run on server side
                 if (!(__instance.Api is ICoreServerAPI sapi)) return;
 
-                // Get the inventory from the quern
                 var inventoryProp = __instance.GetType()
                     .GetProperty("Inventory", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
 
@@ -225,14 +271,12 @@ namespace QuernMessage
                 var inventory = inventoryProp.GetValue(__instance) as InventoryBase;
                 if (inventory == null || inventory.Count == 0) return;
 
-                // Check slot 0 (input slot)
                 var inputSlot = inventory[0];
                 if (inputSlot == null || inputSlot.Empty) return;
 
                 ItemStack inputStack = inputSlot.Itemstack;
                 if (inputStack == null) return;
 
-                // Use the quern's own CanGrind method to check if this item is valid
                 var canGrindMethod = __instance.GetType().GetMethod("CanGrind", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
                 if (canGrindMethod != null)
                 {
@@ -240,7 +284,6 @@ namespace QuernMessage
 
                     if (!canGrind)
                     {
-                        // Item is invalid, send message using shared handler with deduplication
                         QuernMessageHandler.SendInvalidItemMessage(__instance, inputStack);
                     }
                 }
