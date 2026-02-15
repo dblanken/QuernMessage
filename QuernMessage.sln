@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuernMessage", "QuernMessage.csproj", "{7B2ECE97-47FB-4A64-B46D-6DBBA3345F62}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QuernMessage.Tests", "QuernMessage.Tests\QuernMessage.Tests.csproj", "{913D7C50-4917-4D0E-8391-D86900EE4AC5}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{7B2ECE97-47FB-4A64-B46D-6DBBA3345F62}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7B2ECE97-47FB-4A64-B46D-6DBBA3345F62}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7B2ECE97-47FB-4A64-B46D-6DBBA3345F62}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7B2ECE97-47FB-4A64-B46D-6DBBA3345F62}.Release|Any CPU.Build.0 = Release|Any CPU
+		{913D7C50-4917-4D0E-8391-D86900EE4AC5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{913D7C50-4917-4D0E-8391-D86900EE4AC5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{913D7C50-4917-4D0E-8391-D86900EE4AC5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{913D7C50-4917-4D0E-8391-D86900EE4AC5}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
