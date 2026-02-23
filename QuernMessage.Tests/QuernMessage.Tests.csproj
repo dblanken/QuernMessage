@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
 
@@ -29,11 +29,11 @@
 
   <ItemGroup>
     <Reference Include="VintagestoryAPI">
-      <HintPath>/home/dblanken/.local/share/flatpak/app/at.vintagestory.VintageStory/x86_64/stable/316d4dcf09d0c89fd0ac0896fce637a8f26d7a28223f4d079ca2968b8eab7466/files/extra/vintagestory/VintagestoryAPI.dll</HintPath>
+      <HintPath>/home/dblanken/vs_client_linux-x64_1.22.0-pre.3/vintagestory/VintagestoryAPI.dll</HintPath>
       <Private>true</Private>
     </Reference>
     <Reference Include="protobuf-net">
-      <HintPath>/home/dblanken/.local/share/flatpak/app/at.vintagestory.VintageStory/x86_64/stable/316d4dcf09d0c89fd0ac0896fce637a8f26d7a28223f4d079ca2968b8eab7466/files/extra/vintagestory/Lib/protobuf-net.dll</HintPath>
+      <HintPath>/home/dblanken/vs_client_linux-x64_1.22.0-pre.3/vintagestory/Lib/protobuf-net.dll</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>

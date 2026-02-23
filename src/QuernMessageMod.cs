@@ -30,19 +30,19 @@ namespace QuernMessage
 
             if (quernType != null)
             {
-                // Patch OnSlotModifid (note: typo in game code)
-                var onSlotModifiedMethod = quernType.GetMethod("OnSlotModifid",
+                // Patch OnSlotModified
+                var onSlotModifiedMethod = quernType.GetMethod("OnSlotModified",
                     BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
 
                 if (onSlotModifiedMethod != null)
                 {
                     var postfixMethod = typeof(QuernSlotPatch).GetMethod("Postfix");
                     harmony.Patch(onSlotModifiedMethod, postfix: new HarmonyMethod(postfixMethod));
-                    api.Logger.Notification("[QuernMessage] Successfully patched BlockEntityQuern.OnSlotModifid");
+                    api.Logger.Notification("[QuernMessage] Successfully patched BlockEntityQuern.OnSlotModified");
                 }
                 else
                 {
-                    api.Logger.Warning("[QuernMessage] Could not find OnSlotModifid method on BlockEntityQuern");
+                    api.Logger.Warning("[QuernMessage] Could not find OnSlotModified method on BlockEntityQuern");
                 }
 
                 // Patch OnPlayerRightClick to show error message when GUI opens
