@@ -7,11 +7,11 @@
 
   <ItemGroup>
     <Reference Include="VintagestoryAPI">
-      <HintPath>/home/dblanken/.local/share/flatpak/app/at.vintagestory.VintageStory/x86_64/stable/316d4dcf09d0c89fd0ac0896fce637a8f26d7a28223f4d079ca2968b8eab7466/files/extra/vintagestory/VintagestoryAPI.dll</HintPath>
+      <HintPath>$(VINTAGE_STORY)/VintagestoryAPI.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>/home/dblanken/.local/share/flatpak/app/at.vintagestory.VintageStory/x86_64/stable/316d4dcf09d0c89fd0ac0896fce637a8f26d7a28223f4d079ca2968b8eab7466/files/extra/vintagestory/Lib/0Harmony.dll</HintPath>
+      <HintPath>$(VINTAGE_STORY)/Lib/0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
