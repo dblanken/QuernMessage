@@ -4,9 +4,9 @@
   "name": "Quern Message",
   "authors": ["Neimoon"],
   "description": "Displays a message when invalid items are placed in a quern",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "dependencies": {
-    "game": "1.21.6"
+    "game": "1.22.0"
   },
   "side": "Universal"
 }
